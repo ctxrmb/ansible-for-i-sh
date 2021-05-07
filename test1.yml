@@ -1,0 +1,69 @@
+---
+- hosts: 9.200.104.195
+  vars:
+    src_dir: '/mnt/c/download/ptf'
+    dest_ifs_dir: '/ptfimages'
+    gather_facts: false
+    collections:
+    - ibm.power_ibmi
+
+  tasks:
+  - name: removing /ptfimages dir
+    ibmi_cl_command:
+      cmd: RMVDIR DIR('/ptfimages') SUBTREE(*ALL)  
+      joblog: false
+    register: crt_lib_result
+    ignore_errors: true
+
+  - name: creating /ptfimages dir
+    ibmi_cl_command:
+      cmd: crtdir '/ptfimages' 
+    register: crt_lib_repeated_result
+    ignore_errors: false
+
+  - name: copying PTF iso/bin files to OS/400 /ptfimages
+    copy:
+      src: "{{ src_dir }}"
+      dest: "{{ dest_ifs_dir }}"
+      force: true
+    register: file_copy_ok
+
+  - name: clearing original image catalog
+    ibmi_cl_command:
+      cmd: DLTIMGCLG IMGCLG(ANSIBLEPTF) KEEP(*NO)
+    register: dltimgclg_ok
+    ignore_errors: true
+
+  - name: create image catalog and add images
+    ibmi_cl_command:
+      cmd: CRTIMGCLG IMGCLG(ANSIBLEPTF) DIR('/ptfimages/ptf') ADDVRTVOL(*DIR)
+     
+  - name: vary off virtual opt
+    ibmi_cl_command:
+      cmd: VRYCFG CFGOBJ(ANSIBLEOPT) CFGTYPE(*DEV) STATUS(*OFF)
+    ignore_errors: true
+
+  - name: delete virtual opt
+    ibmi_cl_command:
+      cmd: DLTOBJ OBJ(ANSIBLEOPT) OBJTYPE(*DEVD) 
+    ignore_errors: true
+
+  - name: create virtual opt
+    ibmi_cl_command:
+      cmd: CRTDEVOPT DEVD(ANSIBLEOPT) RSRCNAME(*VRT)
+   
+  - name: vary on virtual opt
+    ibmi_cl_command:
+      cmd: VRYCFG CFGOBJ(ANSIBLEOPT) CFGTYPE(*DEV) STATUS(*ON) 
+   
+  - name: load virtual opt to image catalog
+    ibmi_cl_command:
+      cmd: LODIMGCLG IMGCLG(ANSIBLEPTF) DEV(ANSIBLEOPT)
+
+  - name: verify image catalog
+    ibmi_cl_command:
+      cmd: VFYIMGCLG IMGCLG(ANSIBLEPTF) TYPE(*PTF) SORT(*YES)
+
+  - name: install CUM/HIPER/Group PTF from image catalog
+    ibmi_cl_command:
+      cmd: INSPTF LICPGM((*ALL)) DEV(ANSIBLEOPT) INSTYP(*DLYALL) PMTMED(*MLTVOLSET)
